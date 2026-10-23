@@ -120,7 +120,8 @@ npm start
 | `HOST` | 默认 `127.0.0.1`；容器使用 `0.0.0.0` |
 | `PORT` | 默认 `5173`，平台可自动分配 |
 | `APP_PUBLIC` | 设置 `1` 会要求访问口令；Vercel 和 `HOST=0.0.0.0` 也会自动要求 |
-| `PUBLIC_ORIGIN` | 可选的固定 HTTPS 来源，用于经过自定义反向代理时校验 Origin |
+| `PUBLIC_ORIGIN` | 可选的固定 HTTPS 来源，允许该网站跨域调用代理 |
+| `DNS_MODE` | 可选 `cloudflare`，使用 HTTPS DNS 解析并校验公网 IP；默认系统 DNS |
 
 平台未配置口令时，公开模式会禁止 API 转发。跨站调用仅允许匹配 `PUBLIC_ORIGIN` 的固定网站；例如 GitHub Pages 使用 `https://agbird1321939012-design.github.io`（不带路径）。服务端会拒绝本机/内网/特殊地址及重定向，并将 DNS 解析结果固定到实际连接，防止解析后变更目标。
 

@@ -1,24 +1,569 @@
-import {useState,useRef,useEffect} from 'react';
-import {Eye,EyeOff,Link2,SlidersHorizontal,Database,Check,LoaderCircle,ArrowUpRight,Download,Upload,Trash2,ShieldCheck,KeyRound,ExternalLink} from 'lucide-react';
-import type {Settings as SettingsType,Workspace} from '../types';
-import {Modal} from './Modal';
-import {normalizeEndpoint} from '../lib/endpoint';
-import {openChat,usesProxy} from '../lib/transport';
-import {consumeResponse} from '../lib/protocol';
-import {createBackup,parseBackup} from '../lib/backup';
-export type ServerHealth={ok:boolean;passwordRequired:boolean;setupRequired:boolean;maxRequestBytes?:number};
-export function Settings({workspace,health,onSave,onImport,onClear,onClose,onToast,busy,localProxy}:{workspace:Workspace;health:ServerHealth|null;onSave:(value:SettingsType)=>Promise<boolean>;onImport:(value:ReturnType<typeof parseBackup>)=>void;onClear:()=>void;onClose:()=>void;onToast:(text:string)=>void;busy:boolean;localProxy:boolean}) {
- const [saving,setSaving]=useState(false);const [tab,setTab]=useState<'connection'|'preferences'|'data'>('connection');const [value,setValue]=useState(workspace.settings);const [visible,setVisible]=useState(false);const [testing,setTesting]=useState(false);const [testResult,setTestResult]=useState<{ok:boolean;text:string}|null>(null);const file=useRef<HTMLInputElement>(null);const testAbort=useRef<AbortController|null>(null);useEffect(()=>()=>testAbort.current?.abort(),[]);
- let endpoint='';let urlError='';if(value.baseUrl.trim()){try{endpoint=normalizeEndpoint(value.baseUrl);}catch(e){urlError=(e as Error).message;}}
- const proxy=usesProxy(value,localProxy);const valid=Boolean(endpoint&&value.apiKey.trim()&&value.model.trim()&&(!proxy||localProxy||value.proxyUrl));
- const set=<K extends keyof SettingsType>(key:K,next:SettingsType[K])=>{setValue(old=>({...old,[key]:next}));setTestResult(null);};
- async function test(){
-  if(!valid||testing)return;const abort=new AbortController();testAbort.current=abort;setTesting(true);setTestResult(null);const timeout=setTimeout(()=>abort.abort(),65000);
-  try{let responseText='';const response=await openChat(value,[{role:'user',content:'请只回复 OK。'}],{localProxy,signal:abort.signal,maxTokens:256});await consumeResponse(response,e=>{if(e.type==='text')responseText+=e.value;});setTestResult({ok:true,text:`文本连接成功：${responseText.slice(0,100)}。图片能力请发送图片验证。`});}
-  catch(e){setTestResult({ok:false,text:abort.signal.aborted?'测试超时或已取消':e instanceof Error?e.message:'连接失败'});}finally{clearTimeout(timeout);setTesting(false);testAbort.current=null;}
- }
- const save=async()=>{if(value.baseUrl.trim()&&!endpoint){onToast(urlError);return;}setSaving(true);const success=await onSave({...value,baseUrl:value.baseUrl.trim(),apiKey:value.apiKey.trim(),model:value.model.trim()});setSaving(false);if(success){onToast('设置已保存');onClose();}};
- const exportData=()=>{const blob=new Blob([JSON.stringify(createBackup(workspace),null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`见微备份-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);onToast('备份已导出，不包含 API 密钥和连接设置');};
- async function importData(selected?:File){if(!selected)return;if(selected.size>50_000_000){onToast('备份超过 50 MB，无法导入');return;}try{const data=parseBackup(await selected.text());if(confirm(`导入 ${data.conversations.length} 个对话和 ${data.prompts.length} 条提示词？同 ID 的记录保留本机版本。`)){onImport(data);onToast('备份已合并到本机记录');}}catch(e){onToast((e as Error).message);}}
- return <Modal title="设置" subtitle="连接你选择的模型，打造自己的对话空间。" onClose={onClose}><div className="settings-tabs" role="tablist">{[{id:'connection',name:'API 连接',icon:Link2},{id:'preferences',name:'偏好',icon:SlidersHorizontal},{id:'data',name:'数据',icon:Database}].map(t=><button key={t.id} role="tab" aria-selected={tab===t.id} className={tab===t.id?'selected':''} onClick={()=>setTab(t.id as typeof tab)}><t.icon size={16}/>{t.name}</button>)}</div><div className="modal-body settings-body">{tab==='connection'?<>{proxy&&health?.setupRequired?<div className="inline-error">部署服务尚未设置 ACCESS_PASSWORD，请先在部署平台配置私人访问口令。</div>:null}{proxy&&localProxy&&!health?<div className="inline-error">未连接到本地服务。请确认网页与 API 服务已同时启动。</div>:null}<div className="connection-heading"><span className="settings-icon"><Link2 size={21}/></span><div><strong>自定义接口</strong><p>兼容 OpenAI Chat Completions 格式</p></div><span className="small-tag">自带密钥</span></div><label className="field"><span>连接方式</span><select aria-label="连接方式" value={value.connectionMode} onChange={e=>set('connectionMode',e.target.value as SettingsType['connectionMode'])}><option value="auto">自动选择 · {localProxy?'本站代理':'浏览器直连'}</option><option value="direct">浏览器直连</option><option value="proxy">使用代理</option></select><small>{proxy?'通过代理兼容不支持网页直连的中转站':'密钥直接发给中转站，电脑关机也能用；需中转站允许网页调用'}</small></label>{proxy&&!localProxy||value.connectionMode==='proxy'?<label className="field"><span>代理服务网址 {localProxy?<span className="optional">留空使用本站</span>:null}</span><input type="url" value={value.proxyUrl} onChange={e=>set('proxyUrl',e.target.value)} placeholder="https://你的代理服务网址" autoComplete="off"/><small>填写运行本项目服务端的网址，不是中转站 API URL。</small></label>:null}<label className="field"><span>API URL <span className="required">*</span></span><input value={value.baseUrl} onChange={e=>set('baseUrl',e.target.value)} placeholder="https://你的中转站地址/v1" autoComplete="off" spellCheck={false} inputMode="url"/>{urlError?<small className="field-error">{urlError}</small>:<small>支持根地址、/v1 地址或完整聊天接口地址</small>}</label>{endpoint?<div className="endpoint-preview"><span>实际请求地址</span><code>{endpoint}</code></div>:null}<label className="field"><span>API 密钥 <span className="required">*</span></span><div className="password-field"><input type={visible?'text':'password'} value={value.apiKey} onChange={e=>set('apiKey',e.target.value)} placeholder="sk-…" autoComplete="off" spellCheck={false}/><button className="icon-button" type="button" aria-label={visible?'隐藏密钥':'显示密钥'} onClick={()=>setVisible(!visible)}>{visible?<EyeOff size={18}/>:<Eye size={18}/>}</button></div></label><label className="field"><span>模型名称 <span className="required">*</span></span><input value={value.model} onChange={e=>set('model',e.target.value)} placeholder="填写中转站提供的完整模型名称" spellCheck={false} autoComplete="off" maxLength={200}/><small>请确认该模型支持图片输入；名称含 DeepSeek 不代表一定支持识图。</small></label>{proxy&&(health?.passwordRequired||!localProxy||value.proxyUrl)?<label className="field"><span><KeyRound size={14}/> 私人访问口令</span><input type="password" value={value.accessCode} onChange={e=>set('accessCode',e.target.value)} placeholder="部署时设置的 ACCESS_PASSWORD" autoComplete="off"/></label>:null}<label className="toggle-row"><span><strong>在本机记住密钥</strong><small>{value.rememberKey?'密钥和访问口令将保存在这台设备上':'关闭时仅本次页面使用，刷新后需要重填'}</small></span><input type="checkbox" role="switch" checked={value.rememberKey} onChange={e=>set('rememberKey',e.target.checked)}/></label><label className="toggle-row"><span><strong>流式回复</strong><small>逐字显示；接口不兼容时可以关闭</small></span><input type="checkbox" role="switch" checked={value.stream} onChange={e=>set('stream',e.target.checked)}/></label><div className="privacy-note"><ShieldCheck size={17}/><p>{proxy?'请求经代理发送至你的中转站，代理不保存聊天和密钥。服务方会收到请求内容。':'请求由浏览器直接发送给中转站，本站不接收你的密钥、图片或聊天正文。'}</p></div>{testResult?<div className={testResult.ok?'test-success':'inline-error'} role="status">{testResult.ok?<Check size={16}/>:null}{testResult.text}</div>:null}<button className="button secondary test-button" onClick={()=>void test()} disabled={!valid||testing||busy||health?.setupRequired}>{testing?<LoaderCircle className="spin" size={16}/>:<Link2 size={16}/>}<span>{testing?'正在测试连接…':'发送连接测试'}</span><small>可能计费</small></button></>:null}{tab==='preferences'?<><div className="section-intro"><strong>让对话更合心意</strong><p>调整外观、图片质量和模型的回答方式。</p></div><label className="field"><span>外观</span><select aria-label="外观" value={value.theme} onChange={e=>set('theme',e.target.value as SettingsType['theme'])}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><label className="field"><span>图片最长边</span><select aria-label="图片最长边" value={value.imageSize} onChange={e=>set('imageSize',Number(e.target.value))}><option value={1024}>1024 px · 更省流量</option><option value={1600}>1600 px · 推荐</option><option value={2048}>2048 px · 更多细节</option></select><small>上传前会转为 JPEG 并压缩，不修改你的原始照片。</small></label><label className="field"><span>最大输出 Token</span><select aria-label="最大输出 Token" value={value.maxTokens} onChange={e=>set('maxTokens',Number(e.target.value))}>{[1024,2048,4096,8192,16384,32768].map(n=><option key={n} value={n}>{n.toLocaleString()}</option>)}</select><small>需在模型支持的范围内；推理模型的思考过程也可能占用长度。</small></label><label className="field"><span>全局系统提示词 <span className="optional">可选</span></span><textarea value={value.systemPrompt} onChange={e=>set('systemPrompt',e.target.value)} placeholder="例如：请使用中文回答。对于不确定的内容，明确说明。" rows={5} maxLength={30000}/><small>应用于之后发送的每次请求，与提示词收藏独立。</small></label></>:null}{tab==='data'?<><div className="section-intro"><strong>你的记录，由你保管</strong><p>当前设备保存了 {workspace.conversations.length} 个对话、{workspace.prompts.length} 条提示词。</p></div><div className="data-action"><span className="data-icon"><Download size={20}/></span><div><strong>导出备份</strong><p>包含图片、对话和提示词，不包含密钥。</p></div><button className="button secondary" onClick={exportData}>导出</button></div><div className="data-action"><span className="data-icon"><Upload size={20}/></span><div><strong>导入备份</strong><p>合并到现有记录，保留本机重复项。</p></div><button className="button secondary" onClick={()=>file.current?.click()} disabled={busy}>导入</button></div><div className="subtle-note storage-note">记录保存在当前浏览器，设备之间不会自动同步。清理浏览器数据或系统回收空间可能删除记录，建议定期备份。</div><div className="data-action danger-action"><span className="data-icon"><Trash2 size={20}/></span><div><strong>清空对话记录</strong><p>保留提示词和接口设置。</p></div><button className="button danger" disabled={busy||!workspace.conversations.length} onClick={()=>{if(confirm('清空此设备的所有对话和图片？此操作无法撤销，请先导出备份。')){onClear();onToast('对话记录已清空');}}}>清空</button></div><input ref={file} className="visually-hidden" type="file" accept="application/json,.json" aria-label="导入备份文件" onChange={e=>{void importData(e.target.files?.[0]);e.target.value='';}}/><a className="source-link" href="https://support.apple.com/guide/iphone/iph42ab2f3a7/ios" target="_blank" rel="noreferrer">iPhone 主屏幕使用说明<ExternalLink size={13}/></a></>:null}</div><footer className="modal-footer"><span><span className="tiny-dot"/>设置仅保存在当前设备</span><button className="button primary" disabled={testing||saving} onClick={()=>void save()}><Check size={17}/>保存设置<ArrowUpRight size={15}/></button></footer></Modal>;
+import { useState, useRef, useEffect } from "react";
+import {
+  Eye,
+  EyeOff,
+  Link2,
+  SlidersHorizontal,
+  Database,
+  Check,
+  LoaderCircle,
+  ArrowUpRight,
+  Download,
+  Upload,
+  Trash2,
+  ShieldCheck,
+  KeyRound,
+  ExternalLink,
+} from "lucide-react";
+import type { Settings as SettingsType, Workspace } from "../types";
+import { Modal } from "./Modal";
+import { normalizeEndpoint } from "../lib/endpoint";
+import { openChat, usesProxy } from "../lib/transport";
+import { consumeResponse } from "../lib/protocol";
+import { createBackup, parseBackup } from "../lib/backup";
+export type ServerHealth = {
+  ok: boolean;
+  passwordRequired: boolean;
+  setupRequired: boolean;
+  maxRequestBytes?: number;
+};
+export function Settings({
+  workspace,
+  health,
+  onSave,
+  onImport,
+  onClear,
+  onClose,
+  onToast,
+  busy,
+  localProxy,
+}: {
+  workspace: Workspace;
+  health: ServerHealth | null;
+  onSave: (value: SettingsType) => Promise<boolean>;
+  onImport: (value: ReturnType<typeof parseBackup>) => void;
+  onClear: () => void;
+  onClose: () => void;
+  onToast: (text: string) => void;
+  busy: boolean;
+  localProxy: boolean;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<"connection" | "preferences" | "data">(
+    "connection",
+  );
+  const [value, setValue] = useState(workspace.settings);
+  const [visible, setVisible] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
+  const file = useRef<HTMLInputElement>(null);
+  const testAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => testAbort.current?.abort(), []);
+  let endpoint = "";
+  let urlError = "";
+  if (value.baseUrl.trim()) {
+    try {
+      endpoint = normalizeEndpoint(value.baseUrl);
+    } catch (e) {
+      urlError = (e as Error).message;
+    }
+  }
+  const proxy = usesProxy(value, localProxy);
+  const valid = Boolean(
+    endpoint &&
+    value.apiKey.trim() &&
+    value.model.trim() &&
+    (!proxy || localProxy || value.proxyUrl),
+  );
+  const set = <K extends keyof SettingsType>(key: K, next: SettingsType[K]) => {
+    setValue((old) => ({ ...old, [key]: next }));
+    setTestResult(null);
+  };
+  async function test() {
+    if (!valid || testing) return;
+    const abort = new AbortController();
+    testAbort.current = abort;
+    setTesting(true);
+    setTestResult(null);
+    const timeout = setTimeout(() => abort.abort(), 65000);
+    try {
+      let responseText = "";
+      const response = await openChat(
+        value,
+        [{ role: "user", content: "请只回复 OK。" }],
+        { localProxy, signal: abort.signal, maxTokens: 256 },
+      );
+      await consumeResponse(response, (e) => {
+        if (e.type === "text") responseText += e.value;
+      });
+      setTestResult({
+        ok: true,
+        text: `文本连接成功：${responseText.slice(0, 100)}。图片能力请发送图片验证。`,
+      });
+    } catch (e) {
+      setTestResult({
+        ok: false,
+        text: abort.signal.aborted
+          ? "测试超时或已取消"
+          : e instanceof Error
+            ? e.message
+            : "连接失败",
+      });
+    } finally {
+      clearTimeout(timeout);
+      setTesting(false);
+      testAbort.current = null;
+    }
+  }
+  const save = async () => {
+    if (value.baseUrl.trim() && !endpoint) {
+      onToast(urlError);
+      return;
+    }
+    setSaving(true);
+    const success = await onSave({
+      ...value,
+      baseUrl: value.baseUrl.trim(),
+      apiKey: value.apiKey.trim(),
+      model: value.model.trim(),
+    });
+    setSaving(false);
+    if (success) {
+      onToast("设置已保存");
+      onClose();
+    }
+  };
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify(createBackup(workspace), null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `见微备份-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    onToast("备份已导出，不包含 API 密钥和连接设置");
+  };
+  async function importData(selected?: File) {
+    if (!selected) return;
+    if (selected.size > 50_000_000) {
+      onToast("备份超过 50 MB，无法导入");
+      return;
+    }
+    try {
+      const data = parseBackup(await selected.text());
+      if (
+        confirm(
+          `导入 ${data.conversations.length} 个对话和 ${data.prompts.length} 条提示词？同 ID 的记录保留本机版本。`,
+        )
+      ) {
+        onImport(data);
+        onToast("备份已合并到本机记录");
+      }
+    } catch (e) {
+      onToast((e as Error).message);
+    }
+  }
+  return (
+    <Modal
+      title="设置"
+      subtitle="连接你选择的模型，打造自己的对话空间。"
+      onClose={onClose}
+    >
+      <div className="settings-tabs" role="tablist">
+        {[
+          { id: "connection", name: "API 连接", icon: Link2 },
+          { id: "preferences", name: "偏好", icon: SlidersHorizontal },
+          { id: "data", name: "数据", icon: Database },
+        ].map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={tab === t.id ? "selected" : ""}
+            onClick={() => setTab(t.id as typeof tab)}
+          >
+            <t.icon size={16} />
+            {t.name}
+          </button>
+        ))}
+      </div>
+      <div className="modal-body settings-body">
+        {tab === "connection" ? (
+          <>
+            {proxy && health?.setupRequired ? (
+              <div className="inline-error">
+                部署服务尚未设置
+                ACCESS_PASSWORD，请先在部署平台配置私人访问口令。
+              </div>
+            ) : null}
+            {proxy && localProxy && !health ? (
+              <div className="inline-error">
+                未连接到本地服务。请确认网页与 API 服务已同时启动。
+              </div>
+            ) : null}
+            <div className="connection-heading">
+              <span className="settings-icon">
+                <Link2 size={21} />
+              </span>
+              <div>
+                <strong>自定义接口</strong>
+                <p>兼容 OpenAI Chat Completions 格式</p>
+              </div>
+              <span className="small-tag">自带密钥</span>
+            </div>
+            <label className="field">
+              <span>连接方式</span>
+              <select
+                aria-label="连接方式"
+                value={value.connectionMode}
+                onChange={(e) =>
+                  set(
+                    "connectionMode",
+                    e.target.value as SettingsType["connectionMode"],
+                  )
+                }
+              >
+                <option value="auto">
+                  自动选择 · {localProxy ? "本站代理" : "浏览器直连"}
+                </option>
+                <option value="direct">浏览器直连</option>
+                <option value="proxy">使用代理</option>
+              </select>
+              <small>
+                {proxy
+                  ? "通过代理兼容不支持网页直连的中转站"
+                  : "密钥直接发给中转站，电脑关机也能用；需中转站允许网页调用"}
+              </small>
+            </label>
+            {(proxy && !localProxy) || value.connectionMode === "proxy" ? (
+              <label className="field">
+                <span>
+                  代理服务网址{" "}
+                  {localProxy ? (
+                    <span className="optional">留空使用本站</span>
+                  ) : null}
+                </span>
+                <input
+                  type="url"
+                  value={value.proxyUrl}
+                  onChange={(e) => set("proxyUrl", e.target.value)}
+                  placeholder="https://你的代理服务网址"
+                  autoComplete="off"
+                />
+                <small>填写运行本项目服务端的网址，不是中转站 API URL。</small>
+              </label>
+            ) : null}
+            <label className="field">
+              <span>
+                API URL <span className="required">*</span>
+              </span>
+              <input
+                value={value.baseUrl}
+                onChange={(e) => set("baseUrl", e.target.value)}
+                placeholder="https://你的中转站地址/v1"
+                autoComplete="off"
+                spellCheck={false}
+                inputMode="url"
+              />
+              {urlError ? (
+                <small className="field-error">{urlError}</small>
+              ) : (
+                <small>支持根地址、/v1 地址或完整聊天接口地址</small>
+              )}
+            </label>
+            {endpoint ? (
+              <div className="endpoint-preview">
+                <span>实际请求地址</span>
+                <code>{endpoint}</code>
+              </div>
+            ) : null}
+            <label className="field">
+              <span>
+                API 密钥 <span className="required">*</span>
+              </span>
+              <div className="password-field">
+                <input
+                  type={visible ? "text" : "password"}
+                  value={value.apiKey}
+                  onChange={(e) => set("apiKey", e.target.value)}
+                  placeholder="sk-…"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label={visible ? "隐藏密钥" : "显示密钥"}
+                  onClick={() => setVisible(!visible)}
+                >
+                  {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </label>
+            <label className="field">
+              <span>
+                模型名称 <span className="required">*</span>
+              </span>
+              <input
+                value={value.model}
+                onChange={(e) => set("model", e.target.value)}
+                placeholder="填写中转站提供的完整模型名称"
+                spellCheck={false}
+                autoComplete="off"
+                maxLength={200}
+              />
+              <small>
+                请确认该模型支持图片输入；名称含 DeepSeek 不代表一定支持识图。
+              </small>
+            </label>
+            {proxy &&
+            (health?.passwordRequired || !localProxy || value.proxyUrl) ? (
+              <label className="field">
+                <span>
+                  <KeyRound size={14} /> 私人访问口令
+                </span>
+                <input
+                  type="password"
+                  value={value.accessCode}
+                  onChange={(e) => set("accessCode", e.target.value)}
+                  placeholder="部署时设置的 ACCESS_PASSWORD"
+                  autoComplete="off"
+                />
+              </label>
+            ) : null}
+            <label className="toggle-row">
+              <span>
+                <strong>在本机记住密钥</strong>
+                <small>
+                  {value.rememberKey
+                    ? "密钥和访问口令将保存在这台设备上"
+                    : "关闭时仅本次页面使用，刷新后需要重填"}
+                </small>
+              </span>
+              <input
+                type="checkbox"
+                role="switch"
+                checked={value.rememberKey}
+                onChange={(e) => set("rememberKey", e.target.checked)}
+              />
+            </label>
+            <label className="toggle-row">
+              <span>
+                <strong>流式回复</strong>
+                <small>逐字显示；接口不兼容时可以关闭</small>
+              </span>
+              <input
+                type="checkbox"
+                role="switch"
+                checked={value.stream}
+                onChange={(e) => set("stream", e.target.checked)}
+              />
+            </label>
+            <div className="privacy-note">
+              <ShieldCheck size={17} />
+              <p>
+                {proxy
+                  ? "请求经代理发送至你的中转站，代理不保存聊天和密钥。服务方会收到请求内容。"
+                  : "请求由浏览器直接发送给中转站，本站不接收你的密钥、图片或聊天正文。"}
+              </p>
+            </div>
+            {testResult ? (
+              <div
+                className={testResult.ok ? "test-success" : "inline-error"}
+                role="status"
+              >
+                {testResult.ok ? <Check size={16} /> : null}
+                {testResult.text}
+              </div>
+            ) : null}
+            <button
+              className="button secondary test-button"
+              onClick={() => void test()}
+              disabled={!valid || testing || busy || health?.setupRequired}
+            >
+              {testing ? (
+                <LoaderCircle className="spin" size={16} />
+              ) : (
+                <Link2 size={16} />
+              )}
+              <span>{testing ? "正在测试连接…" : "发送连接测试"}</span>
+              <small>可能计费</small>
+            </button>
+          </>
+        ) : null}
+        {tab === "preferences" ? (
+          <>
+            <div className="section-intro">
+              <strong>让对话更合心意</strong>
+              <p>调整外观、图片质量和模型的回答方式。</p>
+            </div>
+            <label className="field">
+              <span>外观</span>
+              <select
+                aria-label="外观"
+                value={value.theme}
+                onChange={(e) =>
+                  set("theme", e.target.value as SettingsType["theme"])
+                }
+              >
+                <option value="system">跟随系统</option>
+                <option value="light">浅色</option>
+                <option value="dark">深色</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>图片最长边</span>
+              <select
+                aria-label="图片最长边"
+                value={value.imageSize}
+                onChange={(e) => set("imageSize", Number(e.target.value))}
+              >
+                <option value={1024}>1024 px · 更省流量</option>
+                <option value={1600}>1600 px · 推荐</option>
+                <option value={2048}>2048 px · 更多细节</option>
+              </select>
+              <small>上传前会转为 JPEG 并压缩，不修改你的原始照片。</small>
+            </label>
+            <label className="field">
+              <span>最大输出 Token</span>
+              <select
+                aria-label="最大输出 Token"
+                value={value.maxTokens}
+                onChange={(e) => set("maxTokens", Number(e.target.value))}
+              >
+                {[1024, 2048, 4096, 8192, 16384, 32768].map((n) => (
+                  <option key={n} value={n}>
+                    {n.toLocaleString()}
+                  </option>
+                ))}
+              </select>
+              <small>
+                需在模型支持的范围内；推理模型的思考过程也可能占用长度。
+              </small>
+            </label>
+            <label className="field">
+              <span>
+                全局系统提示词 <span className="optional">可选</span>
+              </span>
+              <textarea
+                value={value.systemPrompt}
+                onChange={(e) => set("systemPrompt", e.target.value)}
+                placeholder="例如：请使用中文回答。对于不确定的内容，明确说明。"
+                rows={5}
+                maxLength={30000}
+              />
+              <small>应用于之后发送的每次请求，与提示词收藏独立。</small>
+            </label>
+          </>
+        ) : null}
+        {tab === "data" ? (
+          <>
+            <div className="section-intro">
+              <strong>你的记录，由你保管</strong>
+              <p>
+                当前设备保存了 {workspace.conversations.length} 个对话、
+                {workspace.prompts.length} 条提示词。
+              </p>
+            </div>
+            <div className="data-action">
+              <span className="data-icon">
+                <Download size={20} />
+              </span>
+              <div>
+                <strong>导出备份</strong>
+                <p>包含图片、对话和提示词，不包含密钥。</p>
+              </div>
+              <button className="button secondary" onClick={exportData}>
+                导出
+              </button>
+            </div>
+            <div className="data-action">
+              <span className="data-icon">
+                <Upload size={20} />
+              </span>
+              <div>
+                <strong>导入备份</strong>
+                <p>合并到现有记录，保留本机重复项。</p>
+              </div>
+              <button
+                className="button secondary"
+                onClick={() => file.current?.click()}
+                disabled={busy}
+              >
+                导入
+              </button>
+            </div>
+            <div className="subtle-note storage-note">
+              记录保存在当前浏览器，设备之间不会自动同步。清理浏览器数据或系统回收空间可能删除记录，建议定期备份。
+            </div>
+            <div className="data-action danger-action">
+              <span className="data-icon">
+                <Trash2 size={20} />
+              </span>
+              <div>
+                <strong>清空对话记录</strong>
+                <p>保留提示词和接口设置。</p>
+              </div>
+              <button
+                className="button danger"
+                disabled={busy || !workspace.conversations.length}
+                onClick={() => {
+                  if (
+                    confirm(
+                      "清空此设备的所有对话和图片？此操作无法撤销，请先导出备份。",
+                    )
+                  ) {
+                    onClear();
+                    onToast("对话记录已清空");
+                  }
+                }}
+              >
+                清空
+              </button>
+            </div>
+            <input
+              ref={file}
+              className="visually-hidden"
+              type="file"
+              accept="application/json,.json"
+              aria-label="导入备份文件"
+              onChange={(e) => {
+                void importData(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <a
+              className="source-link"
+              href="https://support.apple.com/guide/iphone/iph42ab2f3a7/ios"
+              target="_blank"
+              rel="noreferrer"
+            >
+              iPhone 主屏幕使用说明
+              <ExternalLink size={13} />
+            </a>
+          </>
+        ) : null}
+      </div>
+      <footer className="modal-footer">
+        <span>
+          <span className="tiny-dot" />
+          设置仅保存在当前设备
+        </span>
+        <button
+          className="button primary"
+          disabled={testing || saving}
+          onClick={() => void save()}
+        >
+          <Check size={17} />
+          保存设置
+          <ArrowUpRight size={15} />
+        </button>
+      </footer>
+    </Modal>
+  );
 }
