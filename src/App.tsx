@@ -23,6 +23,9 @@ import { Settings, type ServerHealth } from "./components/Settings";
 import { PromptLibrary } from "./components/PromptLibrary";
 import { Modal } from "./components/Modal";
 import { BrandMark } from "./components/Brand";
+import { ModelPicker } from "./components/ModelPicker";
+import { EditMessage } from "./components/EditMessage";
+import { selectModelConfig } from "./lib/model-configs";
 import type { Backup } from "./lib/backup";
 const LOCAL_PROXY = import.meta.env.VITE_STATIC_HOST !== "true";
 type Draft = { text: string; images: ImageAttachment[] };
@@ -30,15 +33,19 @@ export default function App() {
   const [toast, setToast] = useState("");
   const notify = useCallback((text: string) => setToast(text), []);
   const { workspace, update, loaded, flush } = useWorkspace(notify);
-  const [panel, setPanel] = useState<"settings" | "prompts" | "install" | null>(
-    null,
-  );
+  const [panel, setPanel] = useState<
+    "settings" | "models" | "prompts" | "install" | null
+  >(null);
   const [sidebar, setSidebar] = useState(false);
   const [health, setHealth] = useState<ServerHealth | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [rename, setRename] = useState<string | null>(null);
-  const { busyId, send, regenerate, stop } = useChat(
+  const [editing, setEditing] = useState<{
+    conversationId: string;
+    messageId: string;
+  } | null>(null);
+  const { busyId, send, regenerate, editAndRegenerate, stop } = useChat(
     update,
     notify,
     flush,
@@ -48,6 +55,15 @@ export default function App() {
   useViewport();
   const conversation = workspace.conversations.find(
     (c) => c.id === workspace.activeId,
+  );
+  const activeConfig = workspace.modelConfigs.find(
+    (config) => config.id === workspace.activeModelConfigId,
+  );
+  const editingConversation = workspace.conversations.find(
+    (c) => c.id === editing?.conversationId,
+  );
+  const editingMessage = editingConversation?.messages.find(
+    (message) => message.id === editing?.messageId,
   );
   const draftKey = conversation?.id || "new";
   const draft = drafts[draftKey] || { text: "", images: [] };
@@ -226,13 +242,16 @@ export default function App() {
             </button>
             <button
               className="model-selector"
-              onClick={() => setPanel("settings")}
+              onClick={() => setPanel("models")}
+              title={workspace.settings.model || "选择你的模型"}
             >
               <span className="model-icon">
                 <BrandMark />
               </span>
               <span className="model-name">
-                {workspace.settings.model || "选择你的模型"}
+                {workspace.settings.model
+                  ? activeConfig?.name || workspace.settings.model
+                  : "选择你的模型"}
               </span>
               <ChevronDown size={14} />
             </button>
@@ -281,6 +300,10 @@ export default function App() {
           onRegenerate={() => {
             if (conversation) regenerate(workspace, conversation);
           }}
+          onEdit={(messageId) => {
+            if (conversation)
+              setEditing({ conversationId: conversation.id, messageId });
+          }}
           onError={notify}
         />
         {busyId && busyId !== workspace.activeId ? (
@@ -308,8 +331,8 @@ export default function App() {
         <Settings
           workspace={workspace}
           health={health}
-          onSave={async (settings) => {
-            update((old) => ({ ...old, settings }));
+          onSave={async (modelSettings) => {
+            update((old) => ({ ...old, ...modelSettings }));
             return flush();
           }}
           onImport={importBackup}
@@ -321,6 +344,40 @@ export default function App() {
           onToast={notify}
           busy={Boolean(busyId)}
           localProxy={LOCAL_PROXY}
+        />
+      ) : null}
+      {panel === "models" ? (
+        <ModelPicker
+          configs={workspace.modelConfigs}
+          activeId={workspace.activeModelConfigId}
+          onClose={() => setPanel(null)}
+          onManage={() => setPanel("settings")}
+          onSelect={(id) => {
+            update((old) => selectModelConfig(old, id));
+            void flush();
+            setPanel(null);
+          }}
+        />
+      ) : null}
+      {editingMessage && editingConversation ? (
+        <EditMessage
+          key={`${editingConversation.id}:${editingMessage.id}`}
+          message={editingMessage}
+          modelName={workspace.settings.model}
+          busy={Boolean(busyId)}
+          onClose={() => setEditing(null)}
+          onSave={(text) => {
+            if (!online) {
+              notify("当前没有网络，联网后再重新生成。编辑内容会保留。");
+              return false;
+            }
+            return editAndRegenerate(
+              workspace,
+              editingConversation,
+              editingMessage.id,
+              text,
+            );
+          }}
         />
       ) : null}
       {panel === "prompts" ? (

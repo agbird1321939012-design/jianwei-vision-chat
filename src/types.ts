@@ -43,7 +43,26 @@ export type Workspace = {
   prompts: Prompt[];
   activeId: string | null;
   settings: Settings;
+  modelConfigs: ModelConfig[];
+  activeModelConfigId: string;
 };
+export type ModelConnection = Pick<
+  Settings,
+  | "connectionMode"
+  | "proxyUrl"
+  | "baseUrl"
+  | "apiKey"
+  | "model"
+  | "accessCode"
+  | "rememberKey"
+  | "stream"
+  | "maxTokens"
+>;
+export type ModelConfig = ModelConnection & { id: string; name: string };
+export type ModelSettingsUpdate = Pick<
+  Workspace,
+  "settings" | "modelConfigs" | "activeModelConfigId"
+>;
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content:

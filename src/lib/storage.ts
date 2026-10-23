@@ -1,5 +1,6 @@
 import { openDB } from "idb";
 import type { Workspace } from "../types";
+import { workspaceForStorage } from "./model-configs";
 const database = () =>
   openDB("jianwei-v1", 1, {
     upgrade(db) {
@@ -10,14 +11,7 @@ export async function loadWorkspace(): Promise<Workspace | undefined> {
   return (await database()).get("workspace", "current");
 }
 export async function saveWorkspace(value: Workspace) {
-  const safe = {
-    ...value,
-    settings: {
-      ...value.settings,
-      apiKey: value.settings.rememberKey ? value.settings.apiKey : "",
-      accessCode: value.settings.rememberKey ? value.settings.accessCode : "",
-    },
-  };
+  const safe = workspaceForStorage(value);
   await (await database()).put("workspace", safe, "current");
 }
 export async function requestPersistentStorage() {

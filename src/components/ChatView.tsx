@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ArrowDown,
   LoaderCircle,
+  Pencil,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -158,6 +159,7 @@ export function ChatView({
   configured,
   busy,
   onRegenerate,
+  onEdit,
   onError,
 }: {
   conversation?: Conversation;
@@ -167,6 +169,7 @@ export function ChatView({
   configured: boolean;
   busy: boolean;
   onRegenerate: () => void;
+  onEdit: (messageId: string) => void;
   onError: (text: string) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
@@ -187,6 +190,9 @@ export function ChatView({
     }
   }, [conversation?.messages]);
   const hasMessages = Boolean(conversation?.messages.length);
+  const latestUserIndex = conversation?.messages
+    .map((message) => message.role)
+    .lastIndexOf("user");
   return (
     <div
       className={`chat-scroll ${!hasMessages ? "chat-empty" : ""}`}
@@ -295,6 +301,18 @@ export function ChatView({
                 ) : null}
                 {message.text ? (
                   <div className="user-text">{message.text}</div>
+                ) : null}
+                {index === latestUserIndex ? (
+                  <div className="message-actions user-message-actions">
+                    <button
+                      aria-label="编辑最新消息"
+                      disabled={busy}
+                      onClick={() => onEdit(message.id)}
+                    >
+                      <Pencil size={14} />
+                      <span>编辑</span>
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ) : (

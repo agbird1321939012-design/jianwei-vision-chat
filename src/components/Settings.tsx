@@ -14,8 +14,14 @@ import {
   ShieldCheck,
   KeyRound,
   ExternalLink,
+  Plus,
 } from "lucide-react";
-import type { Settings as SettingsType, Workspace } from "../types";
+import type {
+  Settings as SettingsType,
+  Workspace,
+  ModelSettingsUpdate,
+} from "../types";
+import { createModelConfig, modelConnection } from "../lib/model-configs";
 import { Modal } from "./Modal";
 import { normalizeEndpoint } from "../lib/endpoint";
 import { openChat, usesProxy } from "../lib/transport";
@@ -40,7 +46,7 @@ export function Settings({
 }: {
   workspace: Workspace;
   health: ServerHealth | null;
-  onSave: (value: SettingsType) => Promise<boolean>;
+  onSave: (value: ModelSettingsUpdate) => Promise<boolean>;
   onImport: (value: ReturnType<typeof parseBackup>) => void;
   onClear: () => void;
   onClose: () => void;
@@ -53,6 +59,55 @@ export function Settings({
     "connection",
   );
   const [value, setValue] = useState(workspace.settings);
+  const [configs, setConfigs] = useState(workspace.modelConfigs);
+  const [configId, setConfigId] = useState(workspace.activeModelConfigId);
+  const [configName, setConfigName] = useState(
+    workspace.modelConfigs.find(
+      (item) => item.id === workspace.activeModelConfigId,
+    )?.name || "默认配置",
+  );
+  const currentConfigs = () =>
+    configs.map((item) =>
+      item.id === configId
+        ? {
+            ...item,
+            ...modelConnection(value),
+            name: configName.trim() || value.model.trim() || "未命名配置",
+          }
+        : item,
+    );
+  const chooseConfig = (id: string) => {
+    const next = currentConfigs();
+    const config = next.find((item) => item.id === id);
+    if (!config) return;
+    setConfigs(next);
+    setConfigId(id);
+    setConfigName(config.name);
+    setValue((old) => ({ ...old, ...modelConnection(config) }));
+    setTestResult(null);
+    setVisible(false);
+  };
+  const addConfig = () => {
+    const config = createModelConfig(`模型配置 ${configs.length + 1}`);
+    setConfigs([...currentConfigs(), config]);
+    setConfigId(config.id);
+    setConfigName(config.name);
+    setValue((old) => ({ ...old, ...modelConnection(config) }));
+    setTestResult(null);
+    setVisible(false);
+  };
+  const deleteConfig = () => {
+    if (!confirm(`删除配置“${configName}”？保存设置后生效，对话记录会保留。`))
+      return;
+    let next = currentConfigs().filter((item) => item.id !== configId);
+    if (!next.length) next = [createModelConfig("默认配置")];
+    setConfigs(next);
+    setConfigId(next[0].id);
+    setConfigName(next[0].name);
+    setValue((old) => ({ ...old, ...modelConnection(next[0]) }));
+    setTestResult(null);
+    setVisible(false);
+  };
   const [visible, setVisible] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
@@ -119,16 +174,29 @@ export function Settings({
     }
   }
   const save = async () => {
-    if (value.baseUrl.trim() && !endpoint) {
-      onToast(urlError);
+    const modelConfigs = currentConfigs().map((config) => ({
+      ...config,
+      baseUrl: config.baseUrl.trim(),
+      apiKey: config.apiKey.trim(),
+      model: config.model.trim(),
+      proxyUrl: config.proxyUrl.trim(),
+      accessCode: config.accessCode.trim(),
+    }));
+    try {
+      for (const config of modelConfigs)
+        if (config.baseUrl) normalizeEndpoint(config.baseUrl);
+    } catch (error) {
+      onToast(
+        error instanceof Error ? error.message : "请检查各配置的 API URL",
+      );
       return;
     }
     setSaving(true);
+    const active = modelConfigs.find((config) => config.id === configId)!;
     const success = await onSave({
-      ...value,
-      baseUrl: value.baseUrl.trim(),
-      apiKey: value.apiKey.trim(),
-      model: value.model.trim(),
+      settings: { ...value, ...modelConnection(active) },
+      modelConfigs,
+      activeModelConfigId: configId,
     });
     setSaving(false);
     if (success) {
@@ -195,6 +263,57 @@ export function Settings({
       <div className="modal-body settings-body">
         {tab === "connection" ? (
           <>
+            <div className="config-manager">
+              <label className="field">
+                <span>已保存的模型配置</span>
+                <select
+                  aria-label="已保存的模型配置"
+                  value={configId}
+                  onChange={(e) => chooseConfig(e.target.value)}
+                  disabled={testing || saving}
+                >
+                  {configs.map((config) => (
+                    <option key={config.id} value={config.id}>
+                      {config.id === configId
+                        ? configName || "未命名配置"
+                        : config.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="config-toolbar">
+                <button
+                  className="button secondary"
+                  onClick={addConfig}
+                  disabled={testing || saving}
+                >
+                  <Plus size={16} />
+                  新增配置
+                </button>
+                <button
+                  className="button danger"
+                  onClick={deleteConfig}
+                  disabled={testing || saving}
+                >
+                  <Trash2 size={15} />
+                  删除当前配置
+                </button>
+              </div>
+              <label className="field">
+                <span>配置名称</span>
+                <input
+                  aria-label="配置名称"
+                  value={configName}
+                  onChange={(e) => setConfigName(e.target.value)}
+                  maxLength={100}
+                  placeholder="例如：日常聊天、图片分析"
+                  disabled={testing || saving}
+                />
+                <small>
+                  保存后可在对话顶部随时切换，下面的连接设置各自独立。
+                </small>
+              </label>
+            </div>
             {proxy && health?.setupRequired ? (
               <div className="inline-error">
                 部署服务尚未设置
@@ -457,7 +576,7 @@ export function Settings({
                 rows={5}
                 maxLength={30000}
               />
-              <small>应用于之后发送的每次请求，与提示词收藏独立。</small>
+              <small>所有模型共用，应用于之后发送的每次请求。</small>
             </label>
           </>
         ) : null}

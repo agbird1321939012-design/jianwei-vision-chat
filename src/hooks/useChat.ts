@@ -7,10 +7,15 @@ import {
   type Message,
   type Settings,
 } from "../types";
-import { buildMessages, consumeResponse } from "../lib/protocol";
-import { openChat } from "../lib/transport";
+import {
+  assertRequestFits,
+  buildMessages,
+  consumeResponse,
+} from "../lib/protocol";
+import { createRequest, openChat } from "../lib/transport";
 import { normalizeEndpoint } from "../lib/endpoint";
 import { requestPersistentStorage } from "../lib/storage";
+import { editLatestUserMessage } from "../lib/edit-message";
 export function useChat(
   update: (fn: (old: Workspace) => Workspace) => void,
   onError: (text: string) => void,
@@ -158,5 +163,28 @@ export function useChat(
     if (!messages.length) return;
     void generate({ ...conversation, messages }, workspace.settings);
   };
-  return { busyId, send, regenerate, stop };
+  const editAndRegenerate = (
+    workspace: Workspace,
+    conversation: Conversation,
+    messageId: string,
+    text: string,
+  ) => {
+    if (controller.current || !validate(workspace.settings)) return false;
+    try {
+      const edited = editLatestUserMessage(conversation, messageId, text);
+      // Local configuration and size errors must not replace an existing reply.
+      const request = createRequest(
+        workspace.settings,
+        buildMessages(edited.messages, workspace.settings.systemPrompt),
+        localProxy,
+      );
+      assertRequestFits(JSON.parse(request.body), requestLimit);
+      void generate(edited, workspace.settings);
+      return true;
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "编辑失败，请重试");
+      return false;
+    }
+  };
+  return { busyId, send, regenerate, editAndRegenerate, stop };
 }

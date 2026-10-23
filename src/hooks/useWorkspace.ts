@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { DEFAULT_SETTINGS, DEFAULT_PROMPTS, type Workspace } from "../types";
 import { loadWorkspace, saveWorkspace } from "../lib/storage";
-const initial = (): Workspace => ({
-  conversations: [],
-  prompts: DEFAULT_PROMPTS,
-  activeId: null,
-  settings: DEFAULT_SETTINGS,
-});
+import { migrateModelConfigs } from "../lib/model-configs";
+const initial = (): Workspace =>
+  migrateModelConfigs({
+    conversations: [],
+    prompts: DEFAULT_PROMPTS,
+    activeId: null,
+    settings: DEFAULT_SETTINGS,
+    modelConfigs: [],
+    activeModelConfigId: "",
+  });
 export function useWorkspace(onError: (text: string) => void) {
   const [workspace, setWorkspace] = useState<Workspace>(initial);
   const [loaded, setLoaded] = useState(false);
@@ -41,8 +45,7 @@ export function useWorkspace(onError: (text: string) => void) {
         if (cancelled) return;
         if (stored) {
           const restored = {
-            ...stored,
-            settings: { ...DEFAULT_SETTINGS, ...stored.settings },
+            ...migrateModelConfigs(stored),
             conversations: stored.conversations.map((c) => ({
               ...c,
               messages: c.messages.map((m) =>

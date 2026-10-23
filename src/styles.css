@@ -2511,3 +2511,100 @@ button svg {
     scroll-behavior: auto !important;
   }
 }
+
+/* Saved connections and latest-message editing. */
+.config-manager {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+  margin-bottom: 24px;
+}
+.config-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -2px 0 20px;
+}
+.model-config-list {
+  display: grid;
+  gap: 10px;
+}
+.model-config-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 15px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+.model-config-option.selected,
+.model-config-option:hover {
+  background: var(--blue-soft);
+  border-color: var(--blue);
+}
+.model-config-option > span {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.model-config-option strong,
+.model-config-option small {
+  overflow-wrap: anywhere;
+}
+.model-config-option small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.model-config-option > svg {
+  color: var(--blue);
+  flex-shrink: 0;
+}
+.user-message-actions {
+  justify-content: flex-end;
+  margin-top: 5px;
+}
+.message-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.edit-message-images {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-bottom: 16px;
+}
+.edit-message-images img {
+  width: 58px;
+  height: 58px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.edit-message-images small {
+  color: var(--muted);
+}
+.edit-message-footer {
+  justify-content: flex-end;
+}
+@media (max-width: 600px) {
+  .edit-message-footer .button {
+    flex: 0 1 auto;
+  }
+  .config-toolbar .button {
+    font-size: 12px;
+  }
+}
+
+.edit-message-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.edit-message-form .modal-body {
+  flex: 1;
+}
