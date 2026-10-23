@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: jianwei-vision-chat
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: ACCESS_PASSWORD
+        generateValue: true
+      - key: HOST
+        value: 0.0.0.0
+      - key: APP_PUBLIC
+        value: 1
