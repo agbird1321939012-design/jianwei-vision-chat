@@ -7,8 +7,8 @@
     "Noto Sans SC",
     "PingFang SC",
     sans-serif;
-  color: #24324b;
-  background: #f7f9fc;
+  color: var(--ink);
+  background: var(--canvas);
   font-synthesis: none;
   --canvas: #f7f9fc;
   --surface: #fff;
@@ -17,6 +17,7 @@
   --muted: #7f8ba0;
   --faint: #a0aabd;
   --line: #e8ecf3;
+  --composer-line: #dfe5ef;
   --blue: #4263eb;
   --blue-hover: #3453d3;
   --blue-soft: #edf1ff;
@@ -37,6 +38,7 @@
   --muted: #8e9bb0;
   --faint: #68778d;
   --line: #2a3447;
+  --composer-line: #35435b;
   --blue: #8198ff;
   --blue-hover: #9bacff;
   --blue-soft: #29365c;
@@ -684,7 +686,7 @@ button svg {
   margin: 0 auto;
 }
 .composer {
-  border: 1px solid #dfe5ef;
+  border: 1px solid var(--composer-line);
   background: var(--surface);
   border-radius: 17px;
   box-shadow: 0 4px 22px #273b6608;
@@ -2317,7 +2319,8 @@ button svg {
     font-size: 10px;
   }
   .toast {
-    bottom: max(18px, env(safe-area-inset-bottom));
+    top: calc(var(--viewport-top) + env(safe-area-inset-top) + 70px);
+    bottom: auto;
     font-size: 12px;
     width: max-content;
     min-width: 0;
